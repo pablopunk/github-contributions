@@ -65,6 +65,16 @@ async function ghApi(endpoint: string): Promise<string> {
   }
 
   const res = await fetch(url, { headers });
+  
+  if (res.status === 403) {
+    const remaining = res.headers.get("X-RateLimit-Remaining");
+    const reset = res.headers.get("X-RateLimit-Reset");
+    if (remaining === "0") {
+      const resetTime = reset ? new Date(parseInt(reset) * 1000).toLocaleTimeString() : "unknown";
+      throw new Error(`GitHub API rate limited. Resets at ${resetTime}`);
+    }
+  }
+  
   if (!res.ok) {
     throw new Error(`GitHub API error: ${res.status} ${res.statusText}`);
   }
@@ -157,7 +167,9 @@ export async function fetchStarsForRepos(
 
   if (toFetch.length === 0) return;
 
-  progress?.onProgress?.(`Fetching repo data for ${toFetch.length} repos...`);
+  if (toFetch.length > 10) {
+    progress?.onProgress?.(`Fetching repo data for ${toFetch.length} repos (rate limited)...`);
+  }
 
   for (let i = 0; i < toFetch.length; i++) {
     const repo = toFetch[i];
@@ -168,7 +180,7 @@ export async function fetchStarsForRepos(
     cache.repos[repo.fullName] = { ...repo };
 
     if (i < toFetch.length - 1) {
-      await new Promise(r => setTimeout(r, 100));
+      await new Promise(r => setTimeout(r, 200));
     }
   }
 }
@@ -239,6 +251,9 @@ export async function fetchContributedRepos(
     const count = await fetchPRsForYear(username, year, reposMap);
     if (count > 0) {
       progress?.onProgress?.(`${year}: ${count} PRs`);
+    }
+    if (year > startYear) {
+      await new Promise(r => setTimeout(r, 200));
     }
   }
 

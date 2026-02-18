@@ -38,6 +38,17 @@ export const DEFAULT_CONFIG: Config = {
 const CACHE_FILE = "cache.json";
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
+const CACHE_AGE_MS = 60 * 1000;
+const STALE_WHILE_REVALIDATE_MS = 24 * 60 * 60 * 1000;
+
+let memoryCache: {
+  data: Repository[] | null;
+  fetchedAt: number;
+  username: string;
+} | null = null;
+
+let revalidatePromise: Promise<Repository[]> | null = null;
+
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
 
 function getAuthHeader(): Record<string, string> | undefined {
@@ -284,12 +295,61 @@ export function sortRepos(repos: Repository[], config: Config): Repository[] {
   return sorted;
 }
 
-export async function getRepos(config: Config, progress?: FetchProgress): Promise<Repository[]> {
+export interface CacheStats {
+  fromCache: boolean;
+  isStale: boolean;
+  age: number;
+}
+
+const NO_CACHE: CacheStats = { fromCache: false, isStale: false, age: 0 };
+
+export async function getRepos(
+  config: Config,
+  progress?: FetchProgress,
+  cacheStats?: CacheStats
+): Promise<{ repos: Repository[]; cache: CacheStats }> {
   const username = await getAuthenticatedUser();
+  const now = Date.now();
+
+  const cached = memoryCache;
+  const isFresh = cached && cached.username === username && (now - cached.fetchedAt) < CACHE_AGE_MS;
+  const isStale = cached && cached.username === username && (now - cached.fetchedAt) < STALE_WHILE_REVALIDATE_MS;
+
+  if (cached && cached.username === username && cached.data) {
+    const age = now - cached.fetchedAt;
+    const fromCache = isFresh || isStale;
+
+    if (fromCache) {
+      let repos = [...cached.data];
+      repos = filterRepos(repos, config, repos);
+      repos = sortRepos(repos, config);
+      if (config.limit > 0) repos = repos.slice(0, config.limit);
+
+      progress?.onProgress?.(`Cache hit (${isFresh ? "fresh" : "stale"}, ${Math.round(age / 1000)}s old)`);
+
+      if (isStale && !revalidatePromise) {
+        revalidatePromise = fetchAndCache(username, progress);
+      }
+
+      return {
+        repos,
+        cache: { fromCache: true, isStale: !isFresh, age },
+      };
+    }
+  }
+
   progress?.onProgress?.(`Fetching contributions for: ${username}`);
+  const repos = await fetchAndCache(username, progress);
 
+  let filtered = filterRepos(repos, config, repos);
+  filtered = sortRepos(filtered, config);
+  if (config.limit > 0) filtered = filtered.slice(0, config.limit);
+
+  return { repos: filtered, cache: NO_CACHE };
+}
+
+async function fetchAndCache(username: string, progress?: FetchProgress): Promise<Repository[]> {
   const cache = await loadCache();
-
   let repos: Repository[];
 
   if (!isCacheStale(cache) && cache.username === username && Object.keys(cache.repos).length > 0) {
@@ -303,13 +363,7 @@ export async function getRepos(config: Config, progress?: FetchProgress): Promis
   await fetchStarsForRepos(repos, cache, progress);
   saveCache(cache);
 
-  const allRepos = repos;
-  repos = filterRepos(repos, config, allRepos);
-  repos = sortRepos(repos, config);
-
-  if (config.limit > 0) {
-    repos = repos.slice(0, config.limit);
-  }
+  memoryCache = { data: repos, fetchedAt: Date.now(), username };
 
   return repos;
 }

@@ -2,7 +2,7 @@
 /// <reference types="bun-types" />
 
 import { Hono } from "hono";
-import { Config, DEFAULT_CONFIG, getRepos, Repository } from "./lib";
+import { Config, DEFAULT_CONFIG, getRepos, Repository, CacheStats } from "./lib";
 
 function parseConfigFromUrl(url: URL): Config {
   const config: Config = { ...DEFAULT_CONFIG };
@@ -102,11 +102,22 @@ function renderHtml(repos: Repository[], config: Config): string {
 
 const app = new Hono();
 
+function getCacheControl(isStale: boolean): string {
+  if (isStale) {
+    return "public, max-age=60, stale-while-revalidate=86400";
+  }
+  return "public, max-age=60, stale-while-revalidate=86400";
+}
+
 app.get("/", async (c) => {
   try {
     const config = parseConfigFromUrl(new URL(c.req.url));
-    const repos = await getRepos(config);
+    const { repos, cache } = await getRepos(config);
+
     const html = renderHtml(repos, config);
+
+    c.res.headers.set("Cache-Control", getCacheControl(cache.isStale));
+    c.res.headers.set("X-Cache", cache.fromCache ? (cache.isStale ? "STALE" : "HIT") : "MISS");
 
     return c.html(html);
   } catch (error) {
@@ -120,10 +131,13 @@ app.get("/", async (c) => {
 app.get("/api", async (c) => {
   try {
     const config = parseConfigFromUrl(new URL(c.req.url));
-    const repos = await getRepos(config);
+    const { repos, cache } = await getRepos(config);
 
     const totalStars = repos.reduce((sum, r) => sum + r.stars, 0);
     const totalPRs = repos.reduce((sum, r) => sum + r.prCount, 0);
+
+    c.res.headers.set("Cache-Control", getCacheControl(cache.isStale));
+    c.res.headers.set("X-Cache", cache.fromCache ? (cache.isStale ? "STALE" : "HIT") : "MISS");
 
     return c.json({
       total: repos.length,

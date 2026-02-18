@@ -25,6 +25,7 @@ export interface Config {
   include: string[];
   exclude: string[];
   user?: string;
+  starsLimit?: number;
 }
 
 export const DEFAULT_CONFIG: Config = {
@@ -35,6 +36,7 @@ export const DEFAULT_CONFIG: Config = {
   include: [],
   exclude: [],
   user: undefined,
+  starsLimit: 20,
 };
 
 const CACHE_FILE = "cache.json";
@@ -343,7 +345,7 @@ export async function getRepos(
 
       if (isStale && (!revalidatePromise || revalidateUser !== username)) {
         revalidateUser = username;
-        revalidatePromise = fetchAndCache(username, progress);
+        revalidatePromise = fetchAndCache(username, config, progress);
       }
 
       return {
@@ -355,7 +357,7 @@ export async function getRepos(
   }
 
   progress?.onProgress?.(`Fetching contributions for: ${username}`);
-  const repos = await fetchAndCache(username, progress);
+  const repos = await fetchAndCache(username, config, progress);
 
   let filtered = filterRepos(repos, config, repos);
   filtered = sortRepos(filtered, config);
@@ -364,7 +366,7 @@ export async function getRepos(
   return { repos: filtered, cache: NO_CACHE, user: username };
 }
 
-async function fetchAndCache(username: string, progress?: FetchProgress): Promise<Repository[]> {
+async function fetchAndCache(username: string, config: Config, progress?: FetchProgress): Promise<Repository[]> {
   const cache = await loadCache();
   let repos: Repository[];
 
@@ -376,7 +378,22 @@ async function fetchAndCache(username: string, progress?: FetchProgress): Promis
     cache.username = username;
   }
 
-  await fetchStarsForRepos(repos, cache, progress);
+  repos.sort((a, b) => b.prCount - a.prCount);
+  
+  const starsLimit = config.starsLimit || 20;
+  const topRepos = repos.slice(0, starsLimit);
+  const otherRepos = repos.slice(starsLimit);
+  
+  await fetchStarsForRepos(topRepos, cache, progress);
+  
+  for (const repo of otherRepos) {
+    const cached = cache.repos[repo.fullName];
+    if (cached) {
+      repo.stars = cached.stars;
+      repo.isPrivate = cached.isPrivate;
+    }
+  }
+  
   saveCache(cache);
 
   memoryCache.set(username, { data: repos, fetchedAt: Date.now() });

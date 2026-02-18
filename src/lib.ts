@@ -376,22 +376,7 @@ async function fetchAndCache(username: string, config: Config, progress?: FetchP
     cache.username = username;
   }
 
-  repos.sort((a, b) => b.prCount - a.prCount);
-  
-  const starsLimit = 20;
-  const topRepos = repos.slice(0, starsLimit);
-  const otherRepos = repos.slice(starsLimit);
-  
-  await fetchStarsForRepos(topRepos, cache, progress);
-  
-  for (const repo of otherRepos) {
-    const cached = cache.repos[repo.fullName];
-    if (cached) {
-      repo.stars = cached.stars;
-      repo.isPrivate = cached.isPrivate;
-    }
-  }
-  
+  await fetchStarsForRepos(repos, cache, progress);
   saveCache(cache);
 
   memoryCache.set(username, { data: repos, fetchedAt: Date.now() });

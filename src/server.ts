@@ -17,11 +17,6 @@ function parseConfigFromUrl(url: URL): Config {
     config.scope = scope;
   }
 
-  const starsLimit = url.searchParams.get("starsLimit");
-  if (starsLimit) {
-    config.starsLimit = parseInt(starsLimit, 10) || 20;
-  }
-
   const sort = url.searchParams.get("sort");
   if (sort === "stars" || sort === "contributions" || sort === "all" || sort === "recent") {
     config.sortBy = sort;

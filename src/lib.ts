@@ -25,7 +25,6 @@ export interface Config {
   include: string[];
   exclude: string[];
   user?: string;
-  starsLimit?: number;
 }
 
 export const DEFAULT_CONFIG: Config = {
@@ -36,7 +35,6 @@ export const DEFAULT_CONFIG: Config = {
   include: [],
   exclude: [],
   user: undefined,
-  starsLimit: 20,
 };
 
 const CACHE_FILE = "cache.json";
@@ -380,7 +378,7 @@ async function fetchAndCache(username: string, config: Config, progress?: FetchP
 
   repos.sort((a, b) => b.prCount - a.prCount);
   
-  const starsLimit = config.starsLimit || 20;
+  const starsLimit = 20;
   const topRepos = repos.slice(0, starsLimit);
   const otherRepos = repos.slice(starsLimit);
   

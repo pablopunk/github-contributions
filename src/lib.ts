@@ -1,3 +1,5 @@
+/// <reference types="bun-types" />
+
 export interface Repository {
   name: string;
   fullName: string;
@@ -36,9 +38,38 @@ export const DEFAULT_CONFIG: Config = {
 const CACHE_FILE = "cache.json";
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
+const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
+
+function getAuthHeader(): Record<string, string> | undefined {
+  if (!GITHUB_TOKEN) return undefined;
+  return { Authorization: `Bearer ${GITHUB_TOKEN}` };
+}
+
+async function ghApi(endpoint: string, jq?: string): Promise<string> {
+  const url = `https://api.github.com${endpoint}${jq ? `?${jq}` : ""}`;
+  
+  const headers: Record<string, string> = {
+    Accept: "application/vnd.github.v3+json",
+    ...(getAuthHeader() || {}),
+  };
+
+  const res = await fetch(url, { headers });
+  if (!res.ok) {
+    throw new Error(`GitHub API error: ${res.status} ${res.statusText}`);
+  }
+  return await res.text();
+}
+
 function runGhCommand(args: string[]): string {
   const result = Bun.spawnSync(["gh", ...args]);
   return result.stdout.toString().trim();
+}
+
+export async function getAuthenticatedUser(): Promise<string> {
+  if (GITHUB_TOKEN) {
+    return (await ghApi("/user", "jq=.login")).trim();
+  }
+  return runGhCommand(["api", "user", "--jq", ".login"]);
 }
 
 export function getAuthenticatedUser(): string {
@@ -81,11 +112,10 @@ export function isCacheStale(cache: Cache): boolean {
 }
 
 async function fetchRepoData(fullName: string): Promise<{ stars: number; isPrivate: boolean }> {
-  const result = runGhCommand(["api", `repos/${fullName}`, "--jq", "{stars: .stargazers_count, private: .private}"]);
   try {
-    const data = JSON.parse(result);
+    const data = JSON.parse(await ghApi(`/repos/${fullName}`));
     return {
-      stars: data.stars || 0,
+      stars: data.stargazers_count || 0,
       isPrivate: data.private || false,
     };
   } catch {
@@ -145,20 +175,17 @@ async function fetchPRsForYear(
   let totalFetched = 0;
 
   while (true) {
-    const prData = runGhCommand([
-      "api",
-      `search/issues?q=author:${username}+type:pr+created:${year}-01-01..${year}-12-31&per_page=${perPage}&page=${page}`,
-      "--jq",
-      ".items[] | .repository_url + \"|\" + .created_at",
-    ]);
+    const query = `q=author:${username}+type:pr+created:${year}-01-01..${year}-12-31&per_page=${perPage}&page=${page}`;
+    const data = JSON.parse(await ghApi(`/search/issues?${query}`));
 
-    const lines = prData.split("\n").filter(Boolean);
-    if (lines.length === 0) break;
+    const items = data.items || [];
+    if (items.length === 0) break;
 
-    totalFetched += lines.length;
+    totalFetched += items.length;
 
-    for (const line of lines) {
-      const [url, createdAt] = line.split("|");
+    for (const pr of items) {
+      const url = pr.repository_url;
+      const createdAt = pr.created_at;
       const fullName = parseRepoUrl(url);
       if (fullName) {
         const isOwned = fullName.startsWith(`${username}/`);
@@ -183,7 +210,7 @@ async function fetchPRsForYear(
       }
     }
 
-    if (lines.length < perPage) break;
+    if (items.length < perPage) break;
     page++;
   }
 
@@ -261,7 +288,7 @@ export function sortRepos(repos: Repository[], config: Config): Repository[] {
 }
 
 export async function getRepos(config: Config, progress?: FetchProgress): Promise<Repository[]> {
-  const username = getAuthenticatedUser();
+  const username = await getAuthenticatedUser();
   progress?.onProgress?.(`Fetching contributions for: ${username}`);
 
   const cache = await loadCache();

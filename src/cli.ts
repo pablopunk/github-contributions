@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+/// <reference types="bun-types" />
 
 import { Config, DEFAULT_CONFIG, getRepos, Repository } from "./lib";
 

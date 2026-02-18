@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+/// <reference types="bun-types" />
 
 import { Hono } from "hono";
 import { Config, DEFAULT_CONFIG, getRepos, Repository } from "./lib";
@@ -103,7 +104,7 @@ const app = new Hono();
 
 app.get("/", async (c) => {
   try {
-    const config = parseConfigFromUrl(c.req.url);
+    const config = parseConfigFromUrl(new URL(c.req.url));
     const repos = await getRepos(config);
     const html = renderHtml(repos, config);
 
@@ -118,7 +119,7 @@ app.get("/", async (c) => {
 
 app.get("/api", async (c) => {
   try {
-    const config = parseConfigFromUrl(c.req.url);
+    const config = parseConfigFromUrl(new URL(c.req.url));
     const repos = await getRepos(config);
 
     const totalStars = repos.reduce((sum, r) => sum + r.stars, 0);

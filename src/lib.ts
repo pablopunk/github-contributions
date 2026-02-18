@@ -67,7 +67,8 @@ function runGhCommand(args: string[]): string {
 
 export async function getAuthenticatedUser(): Promise<string> {
   if (GITHUB_TOKEN) {
-    return (await ghApi("/user", "jq=.login")).trim();
+    const data = JSON.parse(await ghApi("/user"));
+    return data.login;
   }
   return runGhCommand(["api", "user", "--jq", ".login"]);
 }

@@ -169,16 +169,9 @@ Examples:
 `);
 });
 
-// For local development with Bun
-if (process.env.NODE_ENV !== "production") {
-  const server = Bun.serve({
-    port: 3000,
-    fetch: app.fetch,
-  });
-  console.log(`Server running at ${server.url}`);
-  console.log(`  HTML:  ${server.url}`);
-  console.log(`  API:   ${server.url}api`);
-  console.log(`  Help:  ${server.url}help`);
-}
+const port = process.env.PORT ? parseInt(process.env.PORT) : 3000;
 
-export default app;
+export default {
+  port,
+  fetch: app.fetch,
+};

@@ -3,8 +3,9 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "cli": "bun run src/cli.ts",
-    "server": "bun run src/server.ts",
+    "cli": "bun --env run src/cli.ts",
+    "server": "bun --env run src/server.ts",
+    "dev": "bun --hot --env run src/server.ts",
     "typecheck": "tsc --noEmit src/**.ts"
   },
   "dependencies": {

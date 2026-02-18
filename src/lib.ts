@@ -53,18 +53,16 @@ let revalidateUser: string | null = null;
 
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
 
-function getAuthHeader(): Record<string, string> | undefined {
-  if (!GITHUB_TOKEN) return undefined;
-  return { Authorization: `Bearer ${GITHUB_TOKEN}` };
-}
-
-async function ghApi(endpoint: string, jq?: string): Promise<string> {
-  const url = `https://api.github.com${endpoint}${jq ? `?${jq}` : ""}`;
+async function ghApi(endpoint: string): Promise<string> {
+  const url = `https://api.github.com${endpoint}`;
   
   const headers: Record<string, string> = {
     Accept: "application/vnd.github.v3+json",
-    ...(getAuthHeader() || {}),
   };
+
+  if (GITHUB_TOKEN) {
+    headers.Authorization = `Bearer ${GITHUB_TOKEN}`;
+  }
 
   const res = await fetch(url, { headers });
   if (!res.ok) {

@@ -72,10 +72,6 @@ export async function getAuthenticatedUser(): Promise<string> {
   return runGhCommand(["api", "user", "--jq", ".login"]);
 }
 
-export function getAuthenticatedUser(): string {
-  return runGhCommand(["api", "user", "--jq", ".login"]);
-}
-
 function isValidRepoUrl(url: string): boolean {
   return url.startsWith("https://api.github.com/repos/");
 }

@@ -7,6 +7,11 @@ import { Config, DEFAULT_CONFIG, getRepos, Repository, CacheStats } from "./lib"
 function parseConfigFromUrl(url: URL): Config {
   const config: Config = { ...DEFAULT_CONFIG };
 
+  const user = url.searchParams.get("user");
+  if (user) {
+    config.user = user;
+  }
+
   const scope = url.searchParams.get("scope");
   if (scope === "own" || scope === "external" || scope === "all") {
     config.scope = scope;
@@ -40,7 +45,24 @@ function parseConfigFromUrl(url: URL): Config {
   return config;
 }
 
-function renderHtml(repos: Repository[], config: Config): string {
+function renderHomePage(user?: string): string {
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <title>GitHub Contributions</title>
+</head>
+<body>
+  <h1>GitHub Contributions</h1>
+  <form action="/" method="get">
+    <input type="text" name="user" placeholder="Enter GitHub username" value="${user || ""}" required />
+    <button type="submit">Go</button>
+  </form>
+  <p>Example: <a href="/?user=pablopunk">/?user=pablopunk</a></p>
+</body>
+</html>`;
+}
+
+function renderHtml(repos: Repository[], config: Config, user: string): string {
   const totalStars = repos.reduce((sum, r) => sum + r.stars, 0);
   const totalPRs = repos.reduce((sum, r) => sum + r.prCount, 0);
 
@@ -60,10 +82,10 @@ function renderHtml(repos: Repository[], config: Config): string {
   return `<!DOCTYPE html>
 <html>
 <head>
-  <title>GitHub Contributions</title>
+  <title>GitHub Contributions - ${user}</title>
 </head>
 <body>
-  <h1>GitHub Contributions</h1>
+  <h1>GitHub Contributions - ${user}</h1>
 
   <h2>Summary</h2>
   <p>
@@ -110,11 +132,18 @@ function getCacheControl(isStale: boolean): string {
 }
 
 app.get("/", async (c) => {
-  try {
-    const config = parseConfigFromUrl(new URL(c.req.url));
-    const { repos, cache } = await getRepos(config);
+  const url = new URL(c.req.url);
+  const user = url.searchParams.get("user");
 
-    const html = renderHtml(repos, config);
+  if (!user) {
+    return c.html(renderHomePage());
+  }
+
+  try {
+    const config = parseConfigFromUrl(url);
+    const { repos, cache, user: actualUser } = await getRepos(config);
+
+    const html = renderHtml(repos, config, actualUser);
 
     c.res.headers.set("Cache-Control", getCacheControl(cache.isStale));
     c.res.headers.set("X-Cache", cache.fromCache ? (cache.isStale ? "STALE" : "HIT") : "MISS");
@@ -129,9 +158,16 @@ app.get("/", async (c) => {
 });
 
 app.get("/api", async (c) => {
+  const url = new URL(c.req.url);
+  const user = url.searchParams.get("user");
+
+  if (!user) {
+    return c.json({ error: "Missing required parameter: user" }, 400);
+  }
+
   try {
-    const config = parseConfigFromUrl(new URL(c.req.url));
-    const { repos, cache } = await getRepos(config);
+    const config = parseConfigFromUrl(url);
+    const { repos, cache, user: actualUser } = await getRepos(config);
 
     const totalStars = repos.reduce((sum, r) => sum + r.stars, 0);
     const totalPRs = repos.reduce((sum, r) => sum + r.prCount, 0);
@@ -140,6 +176,7 @@ app.get("/api", async (c) => {
     c.res.headers.set("X-Cache", cache.fromCache ? (cache.isStale ? "STALE" : "HIT") : "MISS");
 
     return c.json({
+      user: actualUser,
       total: repos.length,
       totalStars,
       totalPRs,

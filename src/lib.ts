@@ -24,6 +24,7 @@ export interface Config {
   limit: number;
   include: string[];
   exclude: string[];
+  user?: string;
 }
 
 export const DEFAULT_CONFIG: Config = {
@@ -33,6 +34,7 @@ export const DEFAULT_CONFIG: Config = {
   limit: 0,
   include: [],
   exclude: [],
+  user: undefined,
 };
 
 const CACHE_FILE = "cache.json";
@@ -41,13 +43,13 @@ const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const CACHE_AGE_MS = 60 * 1000;
 const STALE_WHILE_REVALIDATE_MS = 24 * 60 * 60 * 1000;
 
-let memoryCache: {
+const memoryCache: Map<string, {
   data: Repository[] | null;
   fetchedAt: number;
-  username: string;
-} | null = null;
+}> = new Map();
 
 let revalidatePromise: Promise<Repository[]> | null = null;
+let revalidateUser: string | null = null;
 
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
 
@@ -305,17 +307,16 @@ const NO_CACHE: CacheStats = { fromCache: false, isStale: false, age: 0 };
 
 export async function getRepos(
   config: Config,
-  progress?: FetchProgress,
-  cacheStats?: CacheStats
-): Promise<{ repos: Repository[]; cache: CacheStats }> {
-  const username = await getAuthenticatedUser();
+  progress?: FetchProgress
+): Promise<{ repos: Repository[]; cache: CacheStats; user: string }> {
+  const username = config.user || await getAuthenticatedUser();
   const now = Date.now();
 
-  const cached = memoryCache;
-  const isFresh = cached && cached.username === username && (now - cached.fetchedAt) < CACHE_AGE_MS;
-  const isStale = cached && cached.username === username && (now - cached.fetchedAt) < STALE_WHILE_REVALIDATE_MS;
+  const cached = memoryCache.get(username);
+  const isFresh = cached && (now - cached.fetchedAt) < CACHE_AGE_MS;
+  const isStale = cached && (now - cached.fetchedAt) < STALE_WHILE_REVALIDATE_MS;
 
-  if (cached && cached.username === username && cached.data) {
+  if (cached && cached.data) {
     const age = now - cached.fetchedAt;
     const fromCache = isFresh || isStale;
 
@@ -327,13 +328,15 @@ export async function getRepos(
 
       progress?.onProgress?.(`Cache hit (${isFresh ? "fresh" : "stale"}, ${Math.round(age / 1000)}s old)`);
 
-      if (isStale && !revalidatePromise) {
+      if (isStale && (!revalidatePromise || revalidateUser !== username)) {
+        revalidateUser = username;
         revalidatePromise = fetchAndCache(username, progress);
       }
 
       return {
         repos,
         cache: { fromCache: true, isStale: !isFresh, age },
+        user: username,
       };
     }
   }
@@ -345,7 +348,7 @@ export async function getRepos(
   filtered = sortRepos(filtered, config);
   if (config.limit > 0) filtered = filtered.slice(0, config.limit);
 
-  return { repos: filtered, cache: NO_CACHE };
+  return { repos: filtered, cache: NO_CACHE, user: username };
 }
 
 async function fetchAndCache(username: string, progress?: FetchProgress): Promise<Repository[]> {
@@ -363,7 +366,7 @@ async function fetchAndCache(username: string, progress?: FetchProgress): Promis
   await fetchStarsForRepos(repos, cache, progress);
   saveCache(cache);
 
-  memoryCache = { data: repos, fetchedAt: Date.now(), username };
+  memoryCache.set(username, { data: repos, fetchedAt: Date.now() });
 
   return repos;
 }
